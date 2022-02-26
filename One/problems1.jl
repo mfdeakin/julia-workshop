@@ -32,8 +32,8 @@ Primes(n::Int) = Primes(n, ones(Bool, n))
 
 function iterate(p :: Primes)
     if p.n > 1
-        p[1] = false
-        p[2] = true
+        p.sieve[1] = false
+        p.sieve[2] = true
         (2, 3)
     else
         nothing
@@ -41,7 +41,7 @@ function iterate(p :: Primes)
 end
 
 function isPrime(p :: Primes, i :: Int)
-    for j in [2 ... Int(sqrt(i))]
+    for j in [2 ... Int(floor(sqrt(i)))]
         if p.sieve[j] && mod(i, j) == 0
             return false
         end
@@ -78,9 +78,23 @@ end
 #   - `adjoint(::OuterProduct)` (hint: (uv')' = (vu'))
 # - Try building an instance of OuterProduct in the REPL. Julia can already print it and has matrix-vector and matrix-matrix multiplication defined!
 
-struct OuterProdMtx
-    left :: Vector{Float64}
-    right :: Vector{Float64}
+import Base: adjoint, size, getindex
+
+struct OuterProduct{T <: Real} <: AbstractMatrix{T}
+    left :: Vector{T}
+    right :: Vector{T}
+end
+
+function size(mtx::OuterProduct)
+    return (size(mtx.left)[1], size(mtx.right)[1])
+end
+
+function getindex(mtx::OuterProduct, i::Int, j::Int)
+    return mtx.left[i] * mtx.right[j]
+end
+
+function adjoint(mtx::OuterProduct)
+    return OuterProduct(mtx.right, mtx.left)
 end
 
 # ┏━━━━━━━━━━━┓
@@ -107,22 +121,39 @@ end
 #  - The opposite conversion has been done for you
 # HINT: Think recursively! Remember dispatch!
 
-import Base: +, *, convert
-
+import Base: +, *, convert, >, <, ==
 
 abstract type PeanoNumber <: Integer end
 
-function convert(::Type{PeanoNumber}, x::Int)
-    if x < 0
-        throw(DomainError(x, "Peano numbers are nonnegative."))
-    elseif x == 0
+struct Zero <: PeanoNumber end
+struct S{T <: PeanoNumber} <: PeanoNumber end
+struct P{T <: PeanoNumber} <: PeanoNumber end
+
+S(::T) where {T <: PeanoNumber} = S{T}()
+S(::P{T}) where {T <: PeanoNumber} = T()
+P(::T) where {T <: PeanoNumber} = P{T}()
+P(::S{T}) where {T <: PeanoNumber} = T()
+
+convert(::Type{Int}, ::Zero) = 0
+convert(::Type{Int}, ::S{T}) where {T <: PeanoNumber} = 1 + convert(Int, T())
+convert(::Type{Int}, ::P{T}) where {T <: PeanoNumber} = -1 + convert(Int, T())
+
+function convert(::Type{PeanoNumber}, i::Int)
+    if i < 0
+        P(convert(PeanoNumber, i + 1))
+    elseif i == 0
         Zero()
     else
-        S(convert(PeanoNumber, x - 1))
+        S(convert(PeanoNumber, i - 1))
     end
 end
 
+==(::T1, ::T2) where {T1 <: PeanoNumber, T2 <: PeanoNumber} = convert(Int, T1()) == convert(Int, T2())
+<(::T1, ::T2) where {T1 <: PeanoNumber, T2 <: PeanoNumber} = convert(Int, T1()) < convert(Int, T2())
+>(::T1, ::T2) where {T1 <: PeanoNumber, T2 <: PeanoNumber} = convert(Int, T1()) > convert(Int, T2())
 
++(::T1, ::T2) where {T1 <: PeanoNumber, T2 <: PeanoNumber} = convert(PeanoNumber, convert(Int, T1()) + convert(Int, T2()))
+*(::T1, ::T2) where {T1 <: PeanoNumber, T2 <: PeanoNumber} = convert(PeanoNumber, convert(Int, T1()) * convert(Int, T2()))
 
 # ┏━━━━━━━┓
 # ┃ Tests ┃
@@ -139,15 +170,14 @@ function test_primes()
 end
 test_primes()
 
-
 function test_outerproduct()
     u = randn(128)
     v = randn(256)
     eager = u * v'
     lazy  = OuterProduct(u, v)
 
-    eager_ = adjoint(eager)
     lazy_  = adjoint(lazy)
+    eager_ = adjoint(eager)
 
     if size(lazy) != size(eager)
         println("OuterProduct failed the test, probably in `size`.")
